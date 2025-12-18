@@ -1,4 +1,5 @@
 import os
+import argparse
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -8,19 +9,33 @@ from torchvision import models, transforms
 from PIL import Image
 from tqdm import tqdm
 
-# Configuration & Hyperparameters
-IMG_DIR = "data/augmented_train"
-CSV_FILE = "data/augmented_train/_annotations.csv"
-BATCH_SIZE = 16
-LEARNING_RATE = 1e-4
-EPOCHS = 20
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-MODEL_LOAD_PATH = None
-MODEL_SAVE_PATH = "models/chessboard_corners_resnet18.pth"
-VAL_SPLIT = 0.2  # fraction of data to use for validation
-RANDOM_SEED = 132
-PATIENCE = 5        # early stopping patience (epochs)
-MIN_DELTA = 1e-4    # minimum change to qualify as improvement
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train a ResNet18 to predict chessboard corner coordinates")
+
+    # Paths
+    parser.add_argument('--img-dir', type=str, default="data/augmented_train",
+                        help='Directory containing training images')
+    parser.add_argument('--csv-file', type=str, default="data/augmented_train/_annotations.csv",
+                        help='CSV file with annotations')
+    parser.add_argument('--model-save-path', type=str, default="models/chessboard_corners_resnet18.pth",
+                        help='Path to save the best model checkpoint')
+    parser.add_argument('--model-load-path', type=str, default=None,
+                        help='Path to an existing model checkpoint to resume training (optional)')
+
+    # Hyperparameters
+    parser.add_argument('--batch-size', type=int, default=16)
+    parser.add_argument('--learning-rate', type=float, default=1e-4)
+    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--val-split', type=float, default=0.2,
+                        help='Fraction of data to use for validation (0.0-1.0)')
+    parser.add_argument('--random-seed', type=int, default=132)
+    parser.add_argument('--patience', type=int, default=5,
+                        help='Early stopping patience (epochs)')
+    parser.add_argument('--min-delta', type=float, default=1e-4,
+                        help='Minimum change in validation loss to qualify as improvement')
+
+    return parser.parse_args()
 
 
 # Dataset class for the data
@@ -50,117 +65,142 @@ class ChessboardDataset(Dataset):
         
         return image, torch.tensor(loaded_labels)
 
-# Data Transformations
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
 
-dataset = ChessboardDataset(csv_file=CSV_FILE, img_dir=IMG_DIR, transform=transform)
+def main():
+    args = parse_args()
 
-# Create train / validation split
-dataset_size = len(dataset)
-val_size = max(1, int(dataset_size * VAL_SPLIT))
-train_size = dataset_size - val_size
-generator = torch.Generator().manual_seed(RANDOM_SEED)
-train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=generator)
+    # Device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    # Basic validation
+    if not os.path.isdir(args.img_dir):
+        raise FileNotFoundError(f"Image directory not found: {args.img_dir}")
+    if not os.path.isfile(args.csv_file):
+        raise FileNotFoundError(f"CSV file not found: {args.csv_file}")
 
-# TODO: Visualize the dataset
+    model_save_dir = os.path.dirname(args.model_save_path)
+    if model_save_dir and not os.path.isdir(model_save_dir):
+        os.makedirs(model_save_dir, exist_ok=True)
 
-if MODEL_LOAD_PATH is None:
-    # Transfer learn the ResNet18 model
-    model = models.resnet18(weights='DEFAULT')
-    # Freeze layers
-    for param in model.parameters():
-        param.requires_grad = False
-    # Replace the final FC layer
-    num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, 8) # 8 outputs: (x1, y1, x2, y2, x3, y3, x4, y4)
+    # Data Transformations
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
 
-    model = model.to(DEVICE)
+    dataset = ChessboardDataset(csv_file=args.csv_file, img_dir=args.img_dir, transform=transform)
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-
-else:  # Load existing local model
-    # Init model and optimizer
-    model = models.resnet18(weights='DEFAULT')
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    # Load checkpoint
-    assert MODEL_LOAD_PATH is not None, "MODEL_LOAD_PATH must be set when loading a model"
-    path = str(MODEL_LOAD_PATH)
-    checkpoint = torch.load(path, map_location=DEVICE)
-    # Load optimizer and model state
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-
-    model.to(DEVICE)
-
-criterion = nn.MSELoss()  # Mean Squared Error for regression
-
-# Training Loop
-print(f"Starting training on {DEVICE}...")
-
-# Early stopping trackers
-best_val = float('inf')
-epochs_no_improve = 0
-
-curr_epoch = 0
-curr_loss = 0
-for epoch in range(EPOCHS):
-    running_loss = 0.0
-    for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1} [Train]", unit="batch", leave=False):
-        images = images.to(DEVICE)
-        labels = labels.to(DEVICE)
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        running_loss += loss.item()
-    train_loss = running_loss / (len(train_loader) if len(train_loader) > 0 else 1)
-
-    # Validation
-    model.eval()
-    val_running = 0.0
-    with torch.no_grad():
-        for images, labels in tqdm(val_loader, desc=f"Epoch {epoch+1} [Val]", unit="batch", leave=False):
-            images = images.to(DEVICE)
-            labels = labels.to(DEVICE)
-            outputs = model(images)
-            vloss = criterion(outputs, labels)
-            val_running += vloss.item()
-    val_loss = val_running / (len(val_loader) if len(val_loader) > 0 else 1)
-
-    # Early stopping check
-    improved = (best_val - val_loss) > MIN_DELTA
-    if improved:
-        best_val = val_loss
-        epochs_no_improve = 0
-        checkpoint = {
-            'epoch': epoch + 1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': val_loss,
-        }
-        torch.save(checkpoint, MODEL_SAVE_PATH)
+    # Create train / validation split
+    dataset_size = len(dataset)
+    val_size = max(1, int(dataset_size * args.val_split)) if dataset_size > 1 else 0
+    train_size = dataset_size - val_size
+    generator = torch.Generator().manual_seed(args.random_seed)
+    if val_size > 0:
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=generator)
     else:
-        epochs_no_improve += 1
+        train_dataset = dataset
+        val_dataset = []
 
-    # Early stopping if patience exceeded
-    if epochs_no_improve >= PATIENCE:
-        print(f"Early stopping triggered. No improvement for {epochs_no_improve} epochs.")
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False) if val_size > 0 else []
+
+    # Model init / load
+    if args.model_load_path is None:
+        # Transfer learn the ResNet18 model
+        model = models.resnet18(weights='DEFAULT')
+        # Freeze layers
+        for param in model.parameters():
+            param.requires_grad = False
+        # Replace the final FC layer
+        num_ftrs = model.fc.in_features
+        model.fc = nn.Linear(num_ftrs, 8) # 8 outputs: (x1, y1, x2, y2, x3, y3, x4, y4)
+
+        model = model.to(device)
+
+        optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    else:  # Load existing local model
+        # Init model and optimizer (will be overwritten by checkpoint)
+        model = models.resnet18(weights='DEFAULT')
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+        # Load checkpoint
+        path = str(args.model_load_path)
+        checkpoint = torch.load(path, map_location=device)
+        # Load optimizer and model state
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint.get('epoch', 0)
+        loss = checkpoint.get('loss', None)
+
+        model.to(device)
+
+    criterion = nn.MSELoss()  # Mean Squared Error for regression
+
+    # Training Loop
+    print(f"Starting training on {device}...")
+
+    # Early stopping trackers
+    best_val = float('inf')
+    epochs_no_improve = 0
+
+    curr_epoch = 0
+    curr_loss = 0
+    for epoch in range(args.epochs):
+        running_loss = 0.0
+        model.train()
+        for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1} [Train]", unit="batch", leave=False):
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+        train_loss = running_loss / (len(train_loader) if len(train_loader) > 0 else 1)
+
+        # Validation
+        model.eval()
+        val_running = 0.0
+        if val_size > 0:
+            with torch.no_grad():
+                for images, labels in tqdm(val_loader, desc=f"Epoch {epoch+1} [Val]", unit="batch", leave=False):
+                    images = images.to(device)
+                    labels = labels.to(device)
+                    outputs = model(images)
+                    vloss = criterion(outputs, labels)
+                    val_running += vloss.item()
+            val_loss = val_running / (len(val_loader) if len(val_loader) > 0 else 1)
+        else:
+            val_loss = train_loss
+
+        # Early stopping check
+        improved = (best_val - val_loss) > args.min_delta
+        if improved:
+            best_val = val_loss
+            epochs_no_improve = 0
+            checkpoint = {
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': val_loss,
+            }
+            torch.save(checkpoint, args.model_save_path)
+        else:
+            epochs_no_improve += 1
+
+        # Early stopping if patience exceeded
+        if epochs_no_improve >= args.patience:
+            print(f"Early stopping triggered. No improvement for {epochs_no_improve} epochs.")
+            curr_epoch = epoch + 1
+            curr_loss = best_val
+            break
+
         curr_epoch = epoch + 1
-        curr_loss = best_val
-        break
+        curr_loss = val_loss
+        print(f"\nEpoch {epoch+1}, Train Loss: {train_loss:.7f}, Val Loss: {val_loss:.7f}")
 
-    model.train()
 
-    curr_epoch = epoch + 1
-    curr_loss = val_loss
-    print(f"\nEpoch {epoch+1}, Train Loss: {train_loss:.7f}, Val Loss: {val_loss:.7f}")
+if __name__ == '__main__':
+    main()

@@ -1,5 +1,6 @@
 import os
 import argparse
+
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -27,6 +28,10 @@ def parse_args():
     parser.add_argument('--random-seed', type=int, default=132)
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--min-delta', type=float, default=1e-4)
+
+    # Loss weights
+    parser.add_argument('--corner-loss-weight', type=float, default=1.0)
+    parser.add_argument('--grid-loss-weight', type=float, default=1.0)
 
     return parser.parse_args()
 
@@ -60,6 +65,20 @@ class ChessboardDataset(Dataset):
         loaded_labels[1::2] /= orig_h  # y coordinates
 
         return image, torch.tensor(loaded_labels)
+
+
+def compute_loss(outputs, labels):
+    """
+    Compute the corner SmoothL1 loss
+
+    TODO: Implement a grid reprojection loss on top of corner loss.
+
+    @return: loss (tensor)
+    """
+    # Corner loss with SmoothL1
+    criterion = nn.SmoothL1Loss()
+    loss = criterion(outputs, labels)
+    return loss
 
 
 def main():
@@ -117,12 +136,7 @@ def main():
         model.load_state_dict(checkpoint['model_state_dict'])
         # Load optimizer state if present
         if 'optimizer_state_dict' in checkpoint and checkpoint['optimizer_state_dict'] is not None:
-            try:
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            except Exception:
-                # In case of mismatch, recreate optimizer over trainable params and try again
-                optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.learning_rate)
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
             # Move optimizer state tensors to the correct device
             for state in optimizer.state.values():
@@ -130,14 +144,9 @@ def main():
                     if isinstance(v, torch.Tensor):
                         state[k] = v.to(device)
 
-        epoch = checkpoint.get('epoch', 0)
-        loss = checkpoint.get('loss', None)
-
         model.to(device)
 
-    # Mean Squared Error for regression
-    criterion = nn.MSELoss()
-
+    """Training loop"""
 
     print(f"Starting training on {device}...")
 
@@ -147,12 +156,13 @@ def main():
 
     for epoch in range(args.epochs):
         running_loss = 0.0
+
         model.train()
         for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1} [Train]", unit="batch", leave=False):
             images = images.to(device)
             labels = labels.to(device)
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            loss = compute_loss(outputs, labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -162,17 +172,13 @@ def main():
         # Validation
         model.eval()
         val_running = 0.0
-        if val_size > 0:
-            with torch.no_grad():
-                for images, labels in tqdm(val_loader, desc=f"Epoch {epoch+1} [Val]", unit="batch", leave=False):
-                    images = images.to(device)
-                    labels = labels.to(device)
-                    outputs = model(images)
-                    vloss = criterion(outputs, labels)
-                    val_running += vloss.item()
-            val_loss = val_running / (len(val_loader) if len(val_loader) > 0 else 1)
-        else:
-            val_loss = train_loss
+        for images, labels in tqdm(val_loader, desc=f"Epoch {epoch + 1} [Val]", unit="batch", leave=False):
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)
+            loss = compute_loss(outputs, labels)
+            val_running += loss.item()
+        val_loss = val_running / (len(val_loader) if len(val_loader) > 0 else 1)
 
         # Early stopping check
         improved = (best_val - val_loss) > args.min_delta

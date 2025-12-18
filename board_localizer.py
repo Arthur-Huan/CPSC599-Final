@@ -16,7 +16,7 @@ LEARNING_RATE = 1e-4
 EPOCHS = 20
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 MODEL_LOAD_PATH = None
-MODEL_SAVE_PATH = "chessboard_corners_resnet18.pth"
+MODEL_SAVE_PATH = "models/chessboard_corners_resnet18.pth"
 VAL_SPLIT = 0.2  # fraction of data to use for validation
 RANDOM_SEED = 132
 PATIENCE = 5        # early stopping patience (epochs)
@@ -154,7 +154,7 @@ for epoch in range(EPOCHS):
 
     # Early stopping if patience exceeded
     if epochs_no_improve >= PATIENCE:
-        print(f"Early stopping triggered. No improvement for {epochs_no_improve} epochs. Stopping at epoch {epoch+1}.")
+        print(f"Early stopping triggered. No improvement for {epochs_no_improve} epochs.")
         curr_epoch = epoch + 1
         curr_loss = best_val
         break

@@ -3,19 +3,24 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import models, transforms
 from PIL import Image
+from tqdm import tqdm
 
-# 2. Configuration & Hyperparameters
-IMG_DIR = "data/augmented"
-CSV_FILE = "data/augmented/annotations.csv"
+# Configuration & Hyperparameters
+IMG_DIR = "data/augmented_train"
+CSV_FILE = "data/augmented_train/_annotations.csv"
 BATCH_SIZE = 16
 LEARNING_RATE = 1e-4
 EPOCHS = 20
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 MODEL_LOAD_PATH = None
 MODEL_SAVE_PATH = "chessboard_corners_resnet18.pth"
+VAL_SPLIT = 0.2  # fraction of data to use for validation
+RANDOM_SEED = 132
+PATIENCE = 5        # early stopping patience (epochs)
+MIN_DELTA = 1e-4    # minimum change to qualify as improvement
 
 
 # Dataset class for the data
@@ -45,8 +50,6 @@ class ChessboardDataset(Dataset):
         
         return image, torch.tensor(loaded_labels)
 
-
-
 # Data Transformations
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -55,7 +58,18 @@ transform = transforms.Compose([
 ])
 
 dataset = ChessboardDataset(csv_file=CSV_FILE, img_dir=IMG_DIR, transform=transform)
-train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+# Create train / validation split
+dataset_size = len(dataset)
+val_size = max(1, int(dataset_size * VAL_SPLIT))
+train_size = dataset_size - val_size
+generator = torch.Generator().manual_seed(RANDOM_SEED)
+train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=generator)
+
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+# TODO: Visualize the dataset
 
 if MODEL_LOAD_PATH is None:
     # Transfer learn the ResNet18 model
@@ -76,7 +90,9 @@ else:  # Load existing local model
     model = models.resnet18(weights='DEFAULT')
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     # Load checkpoint
-    checkpoint = torch.load(MODEL_LOAD_PATH, map_location=DEVICE)
+    assert MODEL_LOAD_PATH is not None, "MODEL_LOAD_PATH must be set when loading a model"
+    path = str(MODEL_LOAD_PATH)
+    checkpoint = torch.load(path, map_location=DEVICE)
     # Load optimizer and model state
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -89,40 +105,62 @@ criterion = nn.MSELoss()  # Mean Squared Error for regression
 
 # Training Loop
 print(f"Starting training on {DEVICE}...")
-model.train()
+
+# Early stopping trackers
+best_val = float('inf')
+epochs_no_improve = 0
 
 curr_epoch = 0
 curr_loss = 0
 for epoch in range(EPOCHS):
     running_loss = 0.0
-    for images, labels in train_loader:
+    for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1} [Train]", unit="batch", leave=False):
         images = images.to(DEVICE)
         labels = labels.to(DEVICE)
-
         outputs = model(images)
         loss = criterion(outputs, labels)
-
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
         running_loss += loss.item()
+    train_loss = running_loss / (len(train_loader) if len(train_loader) > 0 else 1)
 
-    epoch_print = epoch + 1
-    loss_print = running_loss / len(train_loader)
-    curr_epoch = epoch_print
-    curr_loss = loss_print
-    print(f"Epoch {epoch_print}, Loss: {loss_print:.6f}")
+    # Validation
+    model.eval()
+    val_running = 0.0
+    with torch.no_grad():
+        for images, labels in tqdm(val_loader, desc=f"Epoch {epoch+1} [Val]", unit="batch", leave=False):
+            images = images.to(DEVICE)
+            labels = labels.to(DEVICE)
+            outputs = model(images)
+            vloss = criterion(outputs, labels)
+            val_running += vloss.item()
+    val_loss = val_running / (len(val_loader) if len(val_loader) > 0 else 1)
 
-# Save Model
-checkpoint = {
-    'epoch': curr_epoch,
-    'model_state_dict': model.state_dict(),
-    'optimizer_state_dict': optimizer.state_dict(),
-    'loss': curr_loss,
-}
-torch.save(checkpoint, MODEL_SAVE_PATH)
-print(f"Training complete. Model saved at {MODEL_SAVE_PATH}")
+    # Early stopping check
+    improved = (best_val - val_loss) > MIN_DELTA
+    if improved:
+        best_val = val_loss
+        epochs_no_improve = 0
+        checkpoint = {
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': val_loss,
+        }
+        torch.save(checkpoint, MODEL_SAVE_PATH)
+    else:
+        epochs_no_improve += 1
 
+    # Early stopping if patience exceeded
+    if epochs_no_improve >= PATIENCE:
+        print(f"Early stopping triggered. No improvement for {epochs_no_improve} epochs. Stopping at epoch {epoch+1}.")
+        curr_epoch = epoch + 1
+        curr_loss = best_val
+        break
 
+    model.train()
 
+    curr_epoch = epoch + 1
+    curr_loss = val_loss
+    print(f"\nEpoch {epoch+1}, Train Loss: {train_loss:.7f}, Val Loss: {val_loss:.7f}")

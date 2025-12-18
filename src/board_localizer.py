@@ -1,25 +1,23 @@
 import os
 import argparse
 
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import DataLoader, random_split
 from torchvision import models, transforms
-from PIL import Image
 from tqdm import tqdm
+
+from src.datasets import ChessboardDataset
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a ResNet18 to predict chessboard corner coordinates")
-
     # Paths
     parser.add_argument('--img-dir', type=str, default="data/augmented_train")
     parser.add_argument('--csv-file', type=str, default="data/augmented_train/_annotations.csv")
     parser.add_argument('--model-save-path', type=str, default="models/chessboard_corners_resnet18.pth")
     parser.add_argument('--model-load-path', type=str, default=None)
-
     # Hyperparameters
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--learning-rate', type=float, default=1e-4)
@@ -28,43 +26,7 @@ def parse_args():
     parser.add_argument('--random-seed', type=int, default=132)
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--min-delta', type=float, default=1e-4)
-
-    # Loss weights
-    parser.add_argument('--corner-loss-weight', type=float, default=1.0)
-    parser.add_argument('--grid-loss-weight', type=float, default=1.0)
-
     return parser.parse_args()
-
-
-# Dataset class for the data
-class ChessboardDataset(Dataset):
-    def __init__(self, csv_file, img_dir, transform=None):
-        self.annotations = pd.read_csv(csv_file)
-        self.img_dir = img_dir
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.annotations)
-
-    def __getitem__(self, index):
-        # CSV format: filename, width, height, tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y
-        img_path = os.path.join(self.img_dir, self.annotations.iloc[index, 0])
-        image = Image.open(img_path).convert('RGB')
-
-        # Extract coordinates: CSV has 8 values after width/height in order
-        # (tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y)
-        # Only tl and br corners needed, as these two can predict the square board area
-        all_coords = self.annotations.iloc[index, 3:].values.astype('float32')
-        loaded_labels = all_coords[[0, 1, 6, 7]]
-
-        orig_w, orig_h = image.size
-        if self.transform:
-            image = self.transform(image)
-        # Normalize labels to [0, 1] based on original image size
-        loaded_labels[0::2] /= orig_w  # x coordinates
-        loaded_labels[1::2] /= orig_h  # y coordinates
-
-        return image, torch.tensor(loaded_labels)
 
 
 def compute_loss(outputs, labels):

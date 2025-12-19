@@ -9,14 +9,18 @@ from torchvision import models, transforms
 from tqdm import tqdm
 
 from src.datasets import ChessboardDataset
+from src.utils import visualize_image_grid
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a ResNet18 to predict chessboard corner coordinates")
     # Paths
-    parser.add_argument('--img-dir', type=str, default="data/augmented_train")
-    parser.add_argument('--csv-file', type=str, default="data/augmented_train/_annotations.csv")
-    parser.add_argument('--model-save-path', type=str, default="models/chessboard_corners_resnet18.pth")
+    parser.add_argument('--img-dir', type=str,
+                        default="../data/augmented_train")
+    parser.add_argument('--csv-file', type=str,
+                        default="../data/augmented_train/_annotations.csv")
+    parser.add_argument('--model-save-path', type=str,
+                        default="../models/chessboard_corners_resnet18.pth")
     parser.add_argument('--model-load-path', type=str, default=None)
     # Hyperparameters
     parser.add_argument('--batch-size', type=int, default=16)
@@ -65,6 +69,9 @@ def main():
     ])
 
     dataset = ChessboardDataset(csv_file=args.csv_file, img_dir=args.img_dir, transform=transform)
+    # Visualize random samples from the dataset (12 images in a grid)
+    visualize_image_grid(dataset, 4, 5)
+
     # Create train / validation split
     dataset_size = len(dataset)
     val_size = max(1, int(dataset_size * args.val_split)) if dataset_size > 1 else 0

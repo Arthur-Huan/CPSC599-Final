@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import models, transforms
 from tqdm import tqdm
 
-from src.datasets import ChessboardDataset
+from src.datasets import CornersDataset
 from src.utils import visualize_image_grid
 
 
@@ -68,7 +68,7 @@ def main():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    dataset = ChessboardDataset(csv_file=args.csv_file, img_dir=args.img_dir, transform=transform)
+    dataset = CornersDataset(csv_file=args.csv_file, img_dir=args.img_dir, transform=transform)
     # Visualize random samples from the dataset (12 images in a grid)
     visualize_image_grid(dataset, 4, 5)
 

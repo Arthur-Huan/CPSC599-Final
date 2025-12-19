@@ -69,7 +69,7 @@ def main():
     ])
 
     dataset = CornersDataset(csv_file=args.csv_file, img_dir=args.img_dir, transform=transform)
-    # Visualize random samples from the dataset (12 images in a grid)
+    # Visualize random samples from the dataset
     visualize_image_grid(dataset, 4, 5)
 
     # Create train / validation split
@@ -83,6 +83,7 @@ def main():
         train_dataset = dataset
         val_dataset = []
 
+    # Data loader
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False) if val_size > 0 else []
 

@@ -149,7 +149,7 @@ def main():
             optimizer.step()
 
             running_loss += loss.item() * inputs.size(0)
-        train_loss = running_loss / len(train_loader)
+        train_loss = running_loss / len(train_loader.dataset)
 
         # Validate model
         model.eval()
@@ -162,7 +162,7 @@ def main():
                 loss = criterion(outputs, labels)
 
                 val_running_loss += loss.item() * inputs.size(0)
-        val_loss = val_running_loss / len(val_loader)
+        val_loss = val_running_loss / len(val_loader.dataset)
 
         # Early stopping check
         improved = (best_val - val_loss) > args.min_delta

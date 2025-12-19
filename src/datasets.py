@@ -1,3 +1,4 @@
+# TODO: Refactor and unify common Dataset parts
 import os
 import pandas as pd
 import torch
@@ -6,8 +7,6 @@ from torch.utils.data import Dataset
 
 from src import piece_name_mapping
 
-
-# TODO: Refactor and unify common Dataset parts
 
 class CornersDataset(Dataset):
     """

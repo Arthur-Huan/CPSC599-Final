@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from src.piece_name_mapping import *
 
 def visualize_image_grid(dataset, rows, cols, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
     """
@@ -55,10 +56,6 @@ def fen_to_matrix(fen: str) -> np.ndarray:
     # Standardize FEN by replacing '-' with '/'
     fen = fen.replace('-', '/')
 
-    piece_to_int = {
-        'P': 1, 'N': 2, 'B': 3, 'R': 4, 'Q': 5, 'K': 6,
-        'p': -1, 'n': -2, 'b': -3, 'r': -4, 'q': -5, 'k': -6
-    }
     board = np.zeros((8, 8), dtype=int)
     rows = fen.split(' ')[0].split('/')
     for r, row in enumerate(rows):
@@ -67,7 +64,7 @@ def fen_to_matrix(fen: str) -> np.ndarray:
             if char.isdigit():
                 c += int(char)
             else:
-                board[r, c] = piece_to_int.get(char, 0)
+                board[r, c] = fen_style_to_number(char)
                 c += 1
     return board
 
@@ -75,10 +72,6 @@ def fen_to_matrix(fen: str) -> np.ndarray:
 def matrix_to_fen(board: np.ndarray) -> str:
     """Convert 8x8 matrix representation to FEN string.
     (Only the piece placement part of FEN)"""
-    int_to_piece = {
-        1: 'P', 2: 'N', 3: 'B', 4: 'R', 5: 'Q', 6: 'K',
-        -1: 'p', -2: 'n', -3: 'b', -4: 'r', -5: 'q', -6: 'k'
-    }
     fen_rows = []
     for r in range(8):
         fen_row = ''
@@ -91,24 +84,9 @@ def matrix_to_fen(board: np.ndarray) -> str:
                 if empty_count > 0:
                     fen_row += str(empty_count)
                     empty_count = 0
-                fen_row += int_to_piece.get(piece, '')
+                fen_row += number_to_fen_style(piece)
         if empty_count > 0:
             fen_row += str(empty_count)
         fen_rows.append(fen_row)
     fen = '/'.join(fen_rows)
     return fen
-
-
-def num_to_piece_matrix(num_matrix: np.ndarray) -> np.ndarray:
-    """Convert numerical matrix to piece matrix with string representations."""
-    int_to_piece = {
-        1: 'P', 2: 'N', 3: 'B', 4: 'R', 5: 'Q', 6: 'K',
-        -1: 'p', -2: 'n', -3: 'b', -4: 'r', -5: 'q', -6: 'k',
-        0: '.'
-    }
-    piece_matrix = np.empty(num_matrix.shape, dtype='<U2')
-    for r in range(num_matrix.shape[0]):
-        for c in range(num_matrix.shape[1]):
-            piece_matrix[r, c] = int_to_piece.get(num_matrix[r, c], '.')
-    return piece_matrix
-

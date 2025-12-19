@@ -90,8 +90,13 @@ def main():
 
     # Model init / load
     model = models.resnet18(weights='DEFAULT')
+    # Freeze all layers
     for param in model.parameters():
         param.requires_grad = False
+    # Unfreeze final layer
+    for param in model.layer4.parameters():
+        param.requires_grad = True
+    # Replace final layer to output 4 coordinates
     num_features = model.fc.in_features
     model.fc = nn.Linear(num_features, 4)  # 4 outputs: (tl_x, tl_y, br_x, br_y)
     model = model.to(device)

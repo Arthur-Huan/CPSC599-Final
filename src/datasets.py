@@ -141,19 +141,29 @@ class BoardDataset(Dataset):
         labels_tensor: torch.LongTensor shaped (64,) with class indices 0..12
     """
 
-    def __init__(self, csv_file, img_dir, transform=None, per_square_transform=None, square_size=None):
-        self.annotations = pd.read_csv(csv_file)
+    def __init__(self, img_dir, transform=None, per_square_transform=None, square_size=None):
+        """
+        Initialize BoardDataset by scanning `img_dir` for image files.
+        """
         self.img_dir = img_dir
         self.transform = transform
         self.per_square_transform = per_square_transform or _default_per_square_transform()
         self.square_size = square_size
 
+        # List files in the provided directory and keep common image extensions
+        exts = {'.jpg', '.jpeg', '.png', '.bmp', '.gif'}
+        files = [f for f in os.listdir(self.img_dir) if os.path.isfile(os.path.join(self.img_dir, f))]
+        # filter by extension
+        files = [f for f in files if os.path.splitext(f)[1].lower() in exts]
+        # sort for deterministic order
+        files.sort()
+        self.filenames = files
+
     def __len__(self):
-        return len(self.annotations)
+        return len(self.filenames)
 
     def __getitem__(self, index):
-        # filename is stored in first column of the CSV
-        filename = self.annotations.iloc[index, 0]
+        filename = self.filenames[index]
         img_path = os.path.join(self.img_dir, filename)
         image = Image.open(img_path).convert('RGB')
 

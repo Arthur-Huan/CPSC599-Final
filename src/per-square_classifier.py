@@ -8,7 +8,6 @@ from torchvision import models
 from tqdm import tqdm
 
 from src.datasets import BoardDataset
-from src.utils import visualize_image_grid
 
 CLASS_NAMES = [
     '0',
@@ -28,8 +27,6 @@ def parse_args():
     # Paths
     parser.add_argument('--img-dir', type=str,
                         default="../data/augmented_train")
-    parser.add_argument('--csv-file', type=str,
-                        default="../data/augmented_train/_annotations.csv")
     parser.add_argument('--model-save-path', type=str,
                         default="../models/per_square_effb0.pth")
     parser.add_argument('--model-load-path', type=str, default=None)
@@ -42,15 +39,11 @@ def parse_args():
     parser.add_argument('--random-seed', type=int, default=132)
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--min-delta', type=float, default=1e-4)
-    parser.add_argument('--square-size', type=int, default=224,
-                        help='Resize each cropped square to this size (went into per-square transforms).')
+    parser.add_argument('--square-size', type=int, default=224)
     # Loss weights to handle class imbalance
-    parser.add_argument('--empty-weight', type=float, default=DEFAULT_EMPTY_WEIGHT,
-                        help='Weight applied to empty-square targets when computing the differentiable loss')
-    parser.add_argument('--pawn-weight', type=float, default=DEFAULT_PAWN_WEIGHT,
-                        help='Weight applied to pawn targets when computing the differentiable loss')
-    parser.add_argument('--piece-weight', type=float, default=DEFAULT_PIECE_WEIGHT,
-                        help='Weight applied to non-pawn piece targets when computing the differentiable loss')
+    parser.add_argument('--empty-weight', type=float, default=DEFAULT_EMPTY_WEIGHT)
+    parser.add_argument('--pawn-weight', type=float, default=DEFAULT_PAWN_WEIGHT)
+    parser.add_argument('--piece-weight', type=float, default=DEFAULT_PIECE_WEIGHT)
 
     return parser.parse_args()
 
@@ -68,15 +61,12 @@ def main():
     # Basic validation
     if not os.path.isdir(args.img_dir):
         raise FileNotFoundError(f"Image directory not found: {args.img_dir}")
-    if not os.path.isfile(args.csv_file):
-        raise FileNotFoundError(f"CSV file not found: {args.csv_file}")
     model_save_dir = os.path.dirname(args.model_save_path)
     if model_save_dir and not os.path.isdir(model_save_dir):
         os.makedirs(model_save_dir, exist_ok=True)
 
     # Create dataset using BoardDataset & resize each square to args.square_size
-    dataset = BoardDataset(csv_file=args.csv_file, img_dir=args.img_dir,
-                           transform=None, square_size=args.square_size)
+    dataset = BoardDataset(img_dir=args.img_dir, transform=None, square_size=args.square_size)
 
     # Create train / validation split
     dataset_size = len(dataset)

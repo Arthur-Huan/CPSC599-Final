@@ -3,7 +3,7 @@ import argparse
 
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 from torchvision import models
 from tqdm import tqdm
 
@@ -79,8 +79,8 @@ def main():
         train_dataset = dataset
         val_dataset = []
 
-    # Data loader
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    # Data loader for validation (kept static)
+    # Train loader will be created per-epoch from random subsets
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False) if val_size > 0 else []
 
     # Model init / load
@@ -151,11 +151,22 @@ def main():
     epochs_no_improve = 0
 
     for epoch in range(args.epochs):
+        # For each epoch, sample a random subset of the available training images
+        fraction_per_epoch = 0.05
+        num_train_images = len(train_dataset)
+        sample_count = max(1, int(round(num_train_images * fraction_per_epoch)))
+        # Use a reproducible generator that varies per epoch
+        epoch_rng = torch.Generator().manual_seed(args.random_seed + epoch)
+        perm = torch.randperm(num_train_images, generator=epoch_rng)
+        sampled_indices = perm[:sample_count].tolist()
+        epoch_subset = Subset(train_dataset, sampled_indices)
+        epoch_loader = DataLoader(epoch_subset, batch_size=args.batch_size, shuffle=True)
+
         running_loss = 0.0
 
         model.train()
         num_batches = 0
-        for squares_batch, labels_batch in tqdm(train_loader, desc=f"Epoch {epoch+1} [Train]", unit="batch", leave=False):
+        for squares_batch, labels_batch in tqdm(epoch_loader, desc=f"Epoch {epoch+1} [Train]", unit="batch", leave=False):
             # squares_batch: (B, 64, C, H, W), labels_batch: (B, 64)
             B = squares_batch.shape[0]
             C = squares_batch.shape[2]

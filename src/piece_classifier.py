@@ -33,7 +33,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def model_transform(image):
+def image_transform(image):
     # Resize to 224x224 and normalize as per EfficientNet requirements
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -45,7 +45,7 @@ def model_transform(image):
 
 
 def load_data(img_dir, batch_size, val_split, random_seed):
-    dataset = PieceDataset(img_dir=img_dir, transform=model_transform)
+    dataset = PieceDataset(img_dir=img_dir, transform=image_transform)
 
     dataset_size = len(dataset)
     val_size = max(1, int(dataset_size * val_split)) if dataset_size > 1 and val_split > 0 else 0
@@ -65,18 +65,43 @@ def load_data(img_dir, batch_size, val_split, random_seed):
 
 
 def init_model(device):
+    args = parse_args()
     model = models.efficientnet_b0(weights='DEFAULT')
     # Replace classifier to match number of classes (13)
     in_features = model.classifier[1].in_features
     model.classifier[1] = nn.Linear(in_features, 13)
-    # freeze backbone and train head
+    # Freeze backbone
     for param in model.parameters():
         param.requires_grad = False
+    # Unfreeze classifier
     for param in model.classifier.parameters():
+        param.requires_grad = True
+    # Unfreeze last conv layer
+    for param in model.features[7].parameters():
         param.requires_grad = True
 
     model = model.to(device)
+
+    # Optionally load checkpoint
+    if args.model_load_path is not None:
+        path = str(args.model_load_path)
+        checkpoint = torch.load(path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+
     return model
+
+
+def init_optimizer(model):
+    args = parse_args()
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.learning_rate)
+
+    # Optionally load checkpoint
+    if args.model_load_path is not None:
+        path = str(args.model_load_path)
+        checkpoint = torch.load(path)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+    return optimizer
 
 
 def save_checkpoint(path, model, optimizer, epoch, val_loss):
@@ -115,24 +140,10 @@ def main():
     # Loss function
     criterion = nn.CrossEntropyLoss()
     # Optimizer
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.learning_rate)
-
-    # Optionally load checkpoint
-    if args.model_load_path is not None:
-        path = str(args.model_load_path)
-        checkpoint = torch.load(path, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        if 'optimizer_state_dict' in checkpoint and checkpoint['optimizer_state_dict'] is not None:
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            # move optimizer state to device
-            for state in optimizer.state.values():
-                for k, v in list(state.items()):
-                    if isinstance(v, torch.Tensor):
-                        state[k] = v.to(device)
-        model.to(device)
+    optimizer = init_optimizer(model)
 
     # Training loop with early stopping
-    print(f"Starting training on {device}...")
+    print(f"\nStarting training on {device}...\n")
     best_val = float('inf')
     epochs_no_improve = 0
     for epoch in range(args.epochs):
@@ -178,6 +189,7 @@ def main():
             break
 
         print(f"Epoch {epoch+1}, Train Loss: {train_loss:.7f}, Val Loss: {val_loss:.7f}\n")
+    print("\nTraining finished.")
 
 
 if __name__ == '__main__':

@@ -177,7 +177,7 @@ def main():
             print(f"Early stopping triggered. No improvement for {epochs_no_improve} epochs.")
             break
 
-        print(f"\n  Epoch {epoch+1}, Train Loss: {train_loss:.7f}, Val Loss: {val_loss:.7f}")
+        print(f"Epoch {epoch+1}, Train Loss: {train_loss:.7f}, Val Loss: {val_loss:.7f}\n")
 
 
 if __name__ == '__main__':

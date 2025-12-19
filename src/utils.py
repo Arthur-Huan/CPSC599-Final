@@ -112,4 +112,3 @@ def num_to_piece_matrix(num_matrix: np.ndarray) -> np.ndarray:
             piece_matrix[r, c] = int_to_piece.get(num_matrix[r, c], '.')
     return piece_matrix
 
-

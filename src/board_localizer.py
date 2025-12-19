@@ -21,7 +21,8 @@ def parse_args():
                         default="../data/augmented_train/_annotations.csv")
     parser.add_argument('--model-save-path', type=str,
                         default="../models/chessboard_corners_resnet18.pth")
-    parser.add_argument('--model-load-path', type=str, default=None)
+    parser.add_argument('--model-load-path', type=str,
+                        default=None)
     # Hyperparameters
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--learning-rate', type=float, default=1e-4)

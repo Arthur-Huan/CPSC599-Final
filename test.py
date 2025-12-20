@@ -19,11 +19,11 @@ def parse_args():
                         help="Which test to run: 'piece' for piece classifier test, 'fen' for FEN generator test")
     # Paths
     parser.add_argument('--img-dir', type=str,
-                        default="../data/test_pieces")
+                        default="data/test_pieces")
     parser.add_argument('--corner_localizer_path', type=str,
-                        default="../models/corner_localizer.pth")
+                        default="models/corner_localizer.pth")
     parser.add_argument('--piece_classifier_path', type=str,
-                        default="../models/piece_classifier.pth")
+                        default="models/piece_classifier.pth")
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--device', type=str, default=None,
                         help='torch device to use, e.g. cpu or cuda')
@@ -114,7 +114,7 @@ def test_fen_generator():
     """Run fen_generator.py (no args), read fen_results.csv, and report FEN accuracy and per-square accuracy.
     Also prints per-class mistake rates for each ground-truth square symbol (including empty '.')."""
     # Paths relative to this file (src/test.py)
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ''))
     fen_generator_path = os.path.join(repo_root, 'fen_generator.py')
     fen_csv_path = os.path.join(repo_root, 'fen_results.csv')
 

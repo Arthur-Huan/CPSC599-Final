@@ -13,14 +13,14 @@ from src.utils import visualize_image_grid
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a ResNet18 to predict chessboard corner coordinates")
+    parser = argparse.ArgumentParser(description="Train an EfficientNet-B0 to predict chessboard corner coordinates")
     # Paths
     parser.add_argument('--img-dir', type=str,
                         default="../data/augmented_train")
     parser.add_argument('--csv-file', type=str,
                         default="../data/augmented_train/_annotations.csv")
     parser.add_argument('--model-save-path', type=str,
-                        default="../models/chessboard_corners_resnet18.pth")
+                        default="../models/chessboard_corners_effnet_b0.pth")
     parser.add_argument('--model-load-path', type=str,
                         default=None)
     # Hyperparameters
@@ -89,16 +89,16 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False) if val_size > 0 else []
 
     # Model init / load
-    model = models.resnet18(weights='DEFAULT')
+    model = models.efficientnet_b0(weights='DEFAULT')
     # Freeze all layers
     for param in model.parameters():
         param.requires_grad = False
-    # Unfreeze final layer
-    for param in model.layer4.parameters():
+    # Unfreeze last feature layer (features[-1])
+    for param in model.features[-1].parameters():
         param.requires_grad = True
     # Replace classifier to output 4 coordinates
-    num_features = model.fc.in_features
-    model.fc = nn.Linear(num_features, 4)  # 4 outputs: (tl_x, tl_y, br_x, br_y)
+    num_features = model.classifier[1].in_features
+    model.classifier = nn.Linear(num_features, 4)  # 4 outputs: (tl_x, tl_y, br_x, br_y)
     model = model.to(device)
 
     # Create optimizer after model is constructed so its param references match checkpoint
